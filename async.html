@@ -20,7 +20,7 @@
 
     <div class="section">
       <h1 class="title">Interactive Idempotency Example</h1>
-      <p>Basic example for transactional processing</p>
+      <p>This example demonstrates how asynchronous processing can be handled</p>
     </div>
 
     <div class="section" >    
@@ -43,6 +43,20 @@
           <div class="control">
             <button class="button is-primary" v-on:click="handlePost">POST</button>
           </div>
+
+          <hr>
+
+          <h2 class="subtitle">Get a record</h2>
+          <div class="field has-addons">
+            <div class="control">
+              <input class="input" type="text" placeholder="id to query" v-model="getId">
+            </div>
+            <div class="control">
+              <button class="button is-primary" v-on:click="handleGet">GET</button>
+            </div>
+          </div>
+
+
         </div>
 
         <div class="column">
@@ -70,8 +84,10 @@
               <th>id</th>
               <th>idempotencyKey</th>
               <th>requestHash</th>
+              <th>status</th>
               <th>value</th>
               <th>created_at</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -100,7 +116,12 @@
 
     Vue.component('record-row', {
       props: ['record'],
-      template: '<tr><td>{{ record.id }}</td><td>{{ record.idempotencyKey }}</td><td>{{ record.requestHash }}</td><td>{{ record.value }}</td><td>{{ record.created_at }}</td></tr>'
+      template: '<tr><td>{{ record.id }}</td><td>{{ record.idempotencyKey }}</td><td>{{ record.requestHash }}</td><td>{{ record.status }}</td><td>{{ record.value }}</td><td>{{ record.created_at }}</td><td><button v-if="record.status==\'Pending\'" class="button is-small" v-on:click="processRecord">Process</button></td></tr>',
+      methods: {
+        processRecord: function() {          
+          this.record.status = "Processed";
+        }
+      }
     })
 
     var app = new Vue({
@@ -112,7 +133,8 @@
         records: [],
         message:'Awaiting POST',
         responseCode:'',
-        responseBody:''
+        responseBody:'',
+        getId:'',
       },
       methods: {
         handlePost: function() {
@@ -163,15 +185,41 @@
             console.log("no requestHash conflict");
             
             // Process this as a new request, and insert a new record
-            var record = {id:this.records.length + 1,idempotencyKey:this.idempotencyKey,requestHash:this.requestHash,value:this.value,created_at: new Date().toLocaleString('en-UK') }
+            var record = {id:this.records.length + 1,idempotencyKey:this.idempotencyKey,requestHash:this.requestHash,status:'Pending',value:this.value,created_at: new Date().toLocaleString('en-UK') }
             this.records.push(record);
 
-            this.message = "New! Processed as a new resource";
-            this.responseCode = 201;
+            this.message = "New resource pending processing";
+            this.responseCode = 202;
             this.responseBody = record;
 
           }
+        },
 
+        handleGet: function() {
+          console.log("Get id: " + this.getId);
+          // lazycast to number
+          this.getId = this.getId * 1;
+
+          // validate input
+          if(isNaN(this.getId)){
+            this.message = 'Invalid ID';
+            this.responseCode = '400';
+            this.responseBody = {error:true,violations:[{field:'id',violoation:'NaN'}]}
+            this.getId = "";
+            return false;
+          }
+
+          var record = searchInArray(this.getId,"id",this.records);
+          if(record){
+            this.message = "Found matching record";
+            this.responseCode = 200;
+            this.responseBody = record;
+          }else{
+            this.message = 'Not found';
+            this.responseCode = '404';
+            this.responseBody = {error:true,violations:[{field:'id',violoation:'not found'}]}
+            this.getId = "";
+          }
 
         }
       }
