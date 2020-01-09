@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Interactive Idempotency Example</title>
+    
+    <script src="https://unpkg.com/vue"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha1/0.6.0/sha1.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.0/css/bulma.min.css">
+
+    <style>
+
+    </style>
+</head>
+<body>
+
+  <div id="app">
+
+    <div class="section">
+      <h1 class="title">Interactive Idempotency Example</h1>
+    </div>
+
+    <div class="section" >    
+      <div class="columns">
+        <div class="column">
+
+          <h2 class="subtitle">Create a new record</h2>
+          <div class="field">
+            <label class="label">idempotencyKey</label>
+            <div class="control">
+              <input class="input" type="text" placeholder="set an idempotency key" v-model="idempotencyKey">
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">value</label>
+            <div class="control">
+              <input class="input" type="text" placeholder="set some record value" v-model="value">
+            </div>
+          </div>
+          <div class="control">
+            <button class="button is-primary" v-on:click="handlePost">POST</button>
+          </div>
+        </div>
+
+        <div class="column">
+
+          <h2 class="subtitle">API Response</h2>
+
+          <p>{{message}}</p>
+
+          <div class="box">
+            <strong>HTTP Status Code: {{ responseCode }}</strong><br/>
+            <pre>{{ responseBody }}</pre>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="section" >  
+      <div class="box">
+        <h2 class="subtitle">Record Database</h2>
+
+        <table class="table" width="100%">
+          <thead>
+            <tr>
+              <th>id</th>
+              <th>idempotencyKey</th>
+              <th>requestHash</th>
+              <th>value</th>
+              <th>created_at</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr is='record-row'
+              v-for="item in records"
+              v-bind:record="item"
+              v-bind:key="item.id"
+            ></tr>
+          </tbody>
+        </table>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+
+    function searchInArray(q, prop, myArray){
+        for (var i=0; i < myArray.length; i++) {
+            if (myArray[i][prop] === q) {
+                return myArray[i];
+            }
+        }
+    }
+
+    Vue.component('record-row', {
+      props: ['record'],
+      template: '<tr><td>{{ record.id }}</td><td>{{ record.idempotencyKey }}</td><td>{{ record.requestHash }}</td><td>{{ record.value }}</td><td>{{ record.created_at }}</td></tr>'
+    })
+
+    var app = new Vue({
+      el: '#app',
+      data: {
+        idempotencyKey: '',
+        value: '',
+        requestHash: '',
+        records: [],
+        message:'Awaiting POST',
+        responseCode:'',
+        responseBody:''
+      },
+      methods: {
+        handlePost: function() {
+
+          // do any steps required before handling, eg validation
+          if(this.value==''){
+            this.message = 'Input invalid. A value is required';
+            this.responseCode = '400';
+            this.responseBody = {error:true,violations:[{field:'value',violoation:'required'}]}
+            return false;
+          }
+
+          // format the input data into a standardised string (not required in this example)
+          this.value = this.value;
+
+          // if no idempotencyKey supplied, set one based on time now so it won't conflict with any other requests
+          if(this.idempotencyKey=="") {
+            var keyToUse = window.performance.timing.navigationStart + window.performance.now();
+          }else{
+            var keyToUse = this.idempotencyKey;
+          }
+
+          // generate the request hash
+          this.requestHash = sha1(keyToUse + this.value);
+          console.log("Generated requestHash: " + this.requestHash);
+
+          // insert a record into database (as a transaction with any other required processing.)
+          // if a transactional insert is not possible, you need to insert a new resource in a pending status to prevent duplicates while it is being processed.
+
+          // check for conflicting requestHash key
+          var existing = searchInArray(this.requestHash,'requestHash',this.records);
+
+          
+          if(existing) {
+            // conflict found. DB insert would fail.
+            console.log("requestHash conflict found");
+
+            // simulate a SELECT query on the requestHash:
+            var record = existing;
+
+            // return 200 message with pre-existing data
+            this.message = "Duplicate! Using existing resource with ID: " + record.id;
+            this.responseCode = 200;
+            this.responseBody = record;
+
+          } else {
+            // no conflict. DB insert would succeed.
+            console.log("no requestHash conflict");
+            
+            // Process this as a new request, and insert a new record
+            var record = {id:this.records.length + 1,idempotencyKey:this.idempotencyKey,requestHash:this.requestHash,value:this.value,created_at: new Date().toLocaleString('en-UK') }
+            this.records.push(record);
+
+            this.message = "New! Processed as a new resource";
+            this.responseCode = 201;
+            this.responseBody = record;
+
+          }
+
+
+        }
+      }
+    })
+
+    
+  </script>
+
+</body>
+</html>
