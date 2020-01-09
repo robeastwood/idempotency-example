@@ -20,7 +20,7 @@
 
     <div class="section">
       <h1 class="title">Interactive Idempotency Example</h1>
-      <p>This example demonstrates how asynchronous processing can be handled</p>
+      <p>This example demonstrates how asynchronous processing can be handled. Something like this might be required if the API has dependences on downstream systems that could take longer to process than the client is prepared to hold a connection open for.</p>
     </div>
 
     <div class="section" >    
@@ -116,10 +116,13 @@
 
     Vue.component('record-row', {
       props: ['record'],
-      template: '<tr><td>{{ record.id }}</td><td>{{ record.idempotencyKey }}</td><td>{{ record.requestHash }}</td><td>{{ record.status }}</td><td>{{ record.value }}</td><td>{{ record.created_at }}</td><td><button v-if="record.status==\'Pending\'" class="button is-small" v-on:click="processRecord">Process</button></td></tr>',
+      template: '<tr><td>{{ record.id }}</td><td>{{ record.idempotencyKey }}</td><td>{{ record.requestHash }}</td><td>{{ record.status }}</td><td>{{ record.value }}</td><td>{{ record.created_at }}</td><td><button v-if="record.status==\'Pending\'" class="button is-small" v-on:click="processOK">Processed</button><button v-if="record.status==\'Pending\'" class="button is-small" v-on:click="processFailed">Failed</button></td></tr>',
       methods: {
-        processRecord: function() {          
+        processOK: function() {          
           this.record.status = "Processed";
+        },
+        processFailed: function() {          
+          this.record.status = "Failed";
         }
       }
     })
@@ -137,6 +140,8 @@
         getId:'',
       },
       methods: {
+
+        // handle a simulated POST request
         handlePost: function() {
 
           // do any steps required before handling, eg validation
@@ -161,12 +166,8 @@
           this.requestHash = sha1(keyToUse + this.value);
           console.log("Generated requestHash: " + this.requestHash);
 
-          // insert a record into database (as a transaction with any other required processing.)
-          // if a transactional insert is not possible, you need to insert a new resource in a pending status to prevent duplicates while it is being processed.
-
-          // check for conflicting requestHash key
+          // check for existing conflicting requestHash key
           var existing = searchInArray(this.requestHash,'requestHash',this.records);
-
           
           if(existing) {
             // conflict found. DB insert would fail.
@@ -175,7 +176,7 @@
             // simulate a SELECT query on the requestHash:
             var record = existing;
 
-            // return 200 message with pre-existing data
+            // return 200 message but with same response as when the record was previously created
             this.message = "Duplicate! Using existing resource with ID: " + record.id;
             this.responseCode = 200;
             this.responseBody = record;
@@ -188,13 +189,19 @@
             var record = {id:this.records.length + 1,idempotencyKey:this.idempotencyKey,requestHash:this.requestHash,status:'Pending',value:this.value,created_at: new Date().toLocaleString('en-UK') }
             this.records.push(record);
 
-            this.message = "New resource pending processing";
+            // return a 202 accepted message
+            this.message = "New resource created, pending processing";
             this.responseCode = 202;
             this.responseBody = record;
+
+            /*=======================================
+              Now go on and begin processing as required
+            =======================================*/
 
           }
         },
 
+        // handle a simulated GET request
         handleGet: function() {
           console.log("Get id: " + this.getId);
           // lazycast to number
@@ -209,13 +216,14 @@
             return false;
           }
 
+          // find matching record in DB
           var record = searchInArray(this.getId,"id",this.records);
           if(record){
             this.message = "Found matching record";
             this.responseCode = 200;
             this.responseBody = record;
           }else{
-            this.message = 'Not found';
+            this.message = 'Record not found';
             this.responseCode = '404';
             this.responseBody = {error:true,violations:[{field:'id',violoation:'not found'}]}
             this.getId = "";
